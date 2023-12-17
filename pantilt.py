@@ -1,34 +1,22 @@
-import cv2
 import numpy as np
-import RPi.GPIO as GPIO
-import time
+import cv2
 
-# Configuración de pines GPIO para los servos
-pan_pin = 18  # Pin GPIO para el servo de pan
-tilt_pin = 23  # Pin GPIO para el servo de tilt
-
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(pan_pin, GPIO.OUT)
-GPIO.setup(tilt_pin, GPIO.OUT)
-
-pan_servo = GPIO.PWM(pan_pin, 50)  # Configura el pin PWM a 50 Hz (20 ms de periodo)
-tilt_servo = GPIO.PWM(tilt_pin, 50)
-
-pan_servo.start(7.5)  # Posición inicial del servo de pan
-tilt_servo.start(7.5)  # Posición inicial del servo de tilt
-
-# Configuración de la cámara
+face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 cap = cv2.VideoCapture(0)
-cap.set(3, 640)  # Ancho de la imagen
-cap.set(4, 480)  # Altura de la imagen
 
-# Rangos de color para el rojo en formato HSV
-lower_red = np.array([0, 100, 100])
-upper_red = np.array([10, 255, 255])
+while 1:
+    ret, img = cap.read()
+    cv2.resizeWindow('img', 500, 500)
+    cv2.line(img, (500, 250), (0, 250), (0, 255, 0), 1)
+    cv2.line(img, (250, 0), (250, 500), (0, 255, 0), 1)
+    cv2.circle(img, (250, 250), 5, (255, 255, 255), -1)
 
-while True:
-    ret, frame = cap.read()
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    # Convertir la imagen a formato HSV
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+    # Definir el rango de colores para el rojo en formato HSV
+    lower_red = np.array([0, 100, 100])
+    upper_red = np.array([10, 255, 255])
 
     # Filtrar por color rojo
     mask = cv2.inRange(hsv, lower_red, upper_red)
@@ -36,29 +24,24 @@ while True:
     # Encontrar contornos
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Encontrar el contorno más grande (suponiendo que sea el objeto que estás buscando)
-    if contours:
-        max_contour = max(contours, key=cv2.contourArea)
-        x, y, w, h = cv2.boundingRect(max_contour)
+    # Dibujar contornos y obtener el centro del objeto rojo
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > 100:  # Filtrar contornos pequeños
+            cv2.drawContours(img, [contour], 0, (0, 255, 0), 2)
+            moments = cv2.moments(contour)
+            if moments["m00"] != 0:
+                cx = int(moments["m10"] / moments["m00"])
+                cy = int(moments["m01"] / moments["m00"])
+                cv2.circle(img, (cx, cy), 5, (0, 0, 255), -1)
+                print("Center of Object is :", (cx, cy))
 
-        # Calcular el centro del objeto
-        center_x = x + w // 2
-        center_y = y + h // 2
+                # Hacer algo con las coordenadas del objeto (puedes enviarlas por serial al Arduino)
 
-        # Hacer seguimiento ajustando los servos
-        pan_position = center_x / 640 * 180  # Escalar la posición al rango de 0 a 180 grados
-        tilt_position = center_y / 480 * 180
-
-        pan_servo.ChangeDutyCycle(pan_position / 18 + 2.5)
-        tilt_servo.ChangeDutyCycle(tilt_position / 18 + 2.5)
-
-    # Mostrar la imagen
-    cv2.imshow('Tracking', frame)
-
-    if cv2.waitKey(1) & 0xFF == 27:  # Presiona Esc para salir
+    cv2.imshow('img', img)
+    k = cv2.waitKey(30) & 0xff
+    if k == 27:
         break
 
-# Liberar recursos
 cap.release()
 cv2.destroyAllWindows()
-GPIO.cleanup()
